@@ -6,187 +6,175 @@ import random
 from flask import Flask, request
 from datetime import datetime
 
+# ==== Настройки ====
 TOKEN = "7762206409:AAFePy9OGuJWG-HxB48JRoKc1f6VFa4IRYc"
-CHAT_ID = 312503925
 WEBHOOK_URL = "https://gozdokbot.onrender.com/"
 TIMEZONE_OFFSET = 3
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-user_states = {}
-user_notifications = {}
+# ==== Хранилище уведомлений ====
+# Структура: { chat_id: [ { 'text': ..., 'time': ..., 'type': ... }, ... ] }
+user_reminders = {}
 
-def get_main_menu():
-    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(
-        telebot.types.KeyboardButton("Тест"),
-        telebot.types.KeyboardButton("Добавить уведомление"),
-        telebot.types.KeyboardButton("Уведомления")
-    )
-    return markup
+# ==== Отправка уведомлений ====
+def send_message(chat_id, text):
+    bot.send_message(chat_id, text)
 
-def send_message(text):
-    bot.send_message(CHAT_ID, text)
-
-def morning_vector():
-    send_message("🌅 Утренний вектор:\nОпредели 1 основную задачу дня и запиши её.\nЧто самое важное ты хочешь сделать сегодня?")
-
-def focus_session():
-    send_message("⏱ 25 минут фокуса:\nЗапусти таймер на 25 минут и работай только над одной задачей.\nПосле — сделай 5 минут перерыв.")
-
-def one_minute_silence():
-    send_message("🤫 1 минута тишины:\nЗакрой глаза. Сделай глубокий вдох. Просто посиди в тишине одну минуту.\nПозволь себе немного покоя.")
-
-def five_min_rule():
-    send_message("🖐 Правило 5 минут:\nЕсли есть задача, которую откладываешь — начни с 5 минут.\nЗаведи таймер и просто начни.")
-
-def daily_reflection():
-    send_message("📝 Комментарий дня:\nЧто было хорошего сегодня?\nЧто бы ты хотел изменить завтра?\nЗапиши 1-2 мысли.")
-
+# ==== Планировщик задач ====
 def schedule_tasks():
-    schedule.every().day.at("09:00").do(morning_vector)
-    schedule.every().day.at("22:00").do(daily_reflection)
-
-    random_times = set()
-    while len(random_times) < 3:
-        hour = random.randint(12, 19)
-        minute = random.randint(0, 59)
-        random_times.add(f"{hour:02}:{minute:02}")
-    times = list(random_times)
-
-    schedule.every().day.at(times[0]).do(one_minute_silence)
-    schedule.every().day.at(times[1]).do(five_min_rule)
-    schedule.every().day.at(times[2]).do(focus_session)
-
-def run_schedule():
-    schedule_tasks()
     while True:
-        schedule.run_pending()
-        time.sleep(1)
+        now = datetime.utcnow()
+        for chat_id, reminders in user_reminders.items():
+            for reminder in reminders:
+                if reminder['type'] == 'fixed':
+                    # Проверка времени с учётом смещения
+                    reminder_time = datetime.strptime(reminder['time'], "%H:%M")
+                    if now.hour == (reminder_time.hour - TIMEZONE_OFFSET) % 24 and now.minute == reminder_time.minute:
+                        send_message(chat_id, reminder['text'])
+                elif reminder['type'] == 'random':
+                    if 'sent_today' not in reminder:
+                        start_hour, end_hour = map(int, reminder['time'].split('-'))
+                        reminder['random_hour'] = random.randint(start_hour, end_hour - 1)
+                        reminder['random_minute'] = random.randint(0, 59)
+                        reminder['sent_today'] = False
+                    if (now.hour == (reminder['random_hour'] - TIMEZONE_OFFSET) % 24 and
+                        now.minute == reminder['random_minute'] and
+                        not reminder['sent_today']):
+                        send_message(chat_id, reminder['text'])
+                        reminder['sent_today'] = True
+        # Сброс флагов в полночь
+        if now.hour == 0 and now.minute == 0:
+            for reminders in user_reminders.values():
+                for r in reminders:
+                    r.pop('sent_today', None)
+        time.sleep(60)
+
+# ==== Обработчики состояний ====
+user_states = {}
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id, "Привет! Я бот-наставник. Я буду присылать тебе напоминания каждый день 🧭", reply_markup=get_main_menu())
+    chat_id = message.chat.id
+    if chat_id not in user_reminders:
+        user_reminders[chat_id] = []
 
-@bot.message_handler(func=lambda msg: msg.text == "Тест")
-def test_button(message):
-    bot.send_message(message.chat.id, "✅ Бот работает! Это тестовое сообщение.")
+    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add("Тест", "Добавить уведомление", "Уведомления")
+    bot.send_message(chat_id, "Привет! Я бот-наставник. Готов помогать каждый день!", reply_markup=markup)
 
-@bot.message_handler(func=lambda msg: msg.text == "Добавить уведомление")
+@bot.message_handler(func=lambda message: message.text == "Тест")
+def test(message):
+    bot.send_message(message.chat.id, "✅ Бот работает!")
+
+@bot.message_handler(func=lambda m: m.text == "Добавить уведомление")
 def add_notification(message):
-    user_states[message.chat.id] = {"step": "choose_time_type"}
+    user_states[message.chat.id] = {'step': 'choose_type'}
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("Точное время", "Случайное время")
-    bot.send_message(message.chat.id, "Выбери тип времени для уведомления:", reply_markup=markup)
+    bot.send_message(message.chat.id, "Выбери тип времени:", reply_markup=markup)
 
-@bot.message_handler(func=lambda msg: msg.text in ["Точное время", "Случайное время"])
-def choose_time_type(message):
+@bot.message_handler(func=lambda m: m.text in ["Точное время", "Случайное время"])
+def time_type(message):
     state = user_states.get(message.chat.id)
-    if not state:
+    if not state or state.get('step') != 'choose_type':
         return
-    state["time_type"] = message.text
-    state["step"] = "enter_text"
-    bot.send_message(message.chat.id, "Введи текст уведомления:")
 
-@bot.message_handler(func=lambda msg: user_states.get(msg.chat.id, {}).get("step") == "enter_text")
-def enter_text(message):
-    user_states[message.chat.id]["text"] = message.text
-    time_type = user_states[message.chat.id]["time_type"]
-    if time_type == "Точное время":
-        bot.send_message(message.chat.id, "Введи время в формате ЧЧ:ММ (например, 14:30):")
-    else:
-        bot.send_message(message.chat.id, "Введи диапазон времени (например, 12:00-18:00):")
-    user_states[message.chat.id]["step"] = "enter_time"
+    state['type'] = 'fixed' if message.text == "Точное время" else 'random'
+    state['step'] = 'enter_time'
 
-@bot.message_handler(func=lambda msg: user_states.get(msg.chat.id, {}).get("step") == "enter_time")
+    text = "Введи время в формате ЧЧ:ММ (например, 14:30):" if state['type'] == 'fixed' else "Введи промежуток в формате ЧЧ-ЧЧ (например, 12-20):"
+    bot.send_message(message.chat.id, text)
+
+@bot.message_handler(func=lambda m: user_states.get(m.chat.id, {}).get('step') == 'enter_time')
 def enter_time(message):
     state = user_states[message.chat.id]
-    text = state["text"]
-    time_type = state["time_type"]
+    time_input = message.text
 
-    if time_type == "Точное время":
-        time_str = message.text
-        try:
-            datetime.strptime(time_str, "%H:%M")
-        except ValueError:
-            return bot.send_message(message.chat.id, "Неверный формат времени. Попробуй снова.")
-        schedule.every().day.at(time_str).do(lambda: bot.send_message(message.chat.id, text)).tag(f"user_{message.chat.id}")
-        user_notifications.setdefault(message.chat.id, []).append({
-            "text": text,
-            "time": time_str,
-            "interval": None
-        })
-    else:
-        try:
-            start_str, end_str = message.text.split("-")
-            start = datetime.strptime(start_str.strip(), "%H:%M")
-            end = datetime.strptime(end_str.strip(), "%H:%M")
-        except ValueError:
-            return bot.send_message(message.chat.id, "Неверный формат. Введи диапазон как ЧЧ:ММ-ЧЧ:ММ.")
-        hour = random.randint(start.hour, end.hour)
-        minute = random.randint(0, 59)
-        time_str = f"{hour:02}:{minute:02}"
-        schedule.every().day.at(time_str).do(lambda: bot.send_message(message.chat.id, text)).tag(f"user_{message.chat.id}")
-        user_notifications.setdefault(message.chat.id, []).append({
-            "text": text,
-            "time": time_str,
-            "interval": f"{start_str.strip()} - {end_str.strip()}"
-        })
+    try:
+        if state['type'] == 'fixed':
+            datetime.strptime(time_input, "%H:%M")
+        else:
+            start, end = map(int, time_input.split('-'))
+            assert 0 <= start < end <= 23
+    except:
+        bot.send_message(message.chat.id, "Неверный формат времени. Попробуй снова.")
+        return
 
-    bot.send_message(message.chat.id, "✅ Уведомление добавлено!", reply_markup=get_main_menu())
-    user_states.pop(message.chat.id, None)
+    state['time'] = time_input
+    state['step'] = 'enter_text'
+    bot.send_message(message.chat.id, "Теперь введи текст уведомления:")
 
-@bot.message_handler(func=lambda msg: msg.text == "Уведомления")
-def show_notifications(message):
-    notifs = user_notifications.get(message.chat.id, [])
-    if not notifs:
-        return bot.send_message(message.chat.id, "У тебя пока нет уведомлений.", reply_markup=get_main_menu())
+@bot.message_handler(func=lambda m: user_states.get(m.chat.id, {}).get('step') == 'enter_text')
+def enter_text(message):
+    state = user_states[message.chat.id]
+    chat_id = message.chat.id
+
+    new_reminder = {
+        'type': state['type'],
+        'time': state['time'],
+        'text': message.text
+    }
+
+    user_reminders[chat_id].append(new_reminder)
+    user_states.pop(chat_id)
 
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
-    for idx, notif in enumerate(notifs):
-        label = f"{idx+1}. {notif['time']} — {notif['text'][:20]}"
-        markup.add(label)
+    markup.add("Тест", "Добавить уведомление", "Уведомления")
+    bot.send_message(chat_id, "Уведомление добавлено!", reply_markup=markup)
+
+@bot.message_handler(func=lambda m: m.text == "Уведомления")
+def show_notifications(message):
+    chat_id = message.chat.id
+    reminders = user_reminders.get(chat_id, [])
+
+    if not reminders:
+        bot.send_message(chat_id, "У тебя пока нет уведомлений.")
+        return
+
+    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+    for i, r in enumerate(reminders):
+        btn_text = f"{i+1}. {r['text']} ({r['time']})"
+        markup.add(btn_text)
     markup.add("Назад")
-    user_states[message.chat.id] = {"step": "choose_to_delete"}
-    bot.send_message(message.chat.id, "Твои уведомления. Нажми, чтобы удалить:", reply_markup=markup)
+    bot.send_message(chat_id, "Список уведомлений:", reply_markup=markup)
 
-@bot.message_handler(func=lambda msg: user_states.get(msg.chat.id, {}).get("step") == "choose_to_delete")
-def delete_notification(message):
-    if message.text == "Назад":
-        user_states.pop(message.chat.id, None)
-        return bot.send_message(message.chat.id, "Возвращаюсь в меню.", reply_markup=get_main_menu())
+@bot.message_handler(func=lambda m: m.text.startswith("Назад"))
+def go_back(message):
+    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add("Тест", "Добавить уведомление", "Уведомления")
+    bot.send_message(message.chat.id, "Главное меню:", reply_markup=markup)
 
-    notifs = user_notifications.get(message.chat.id, [])
-    try:
-        idx = int(message.text.split(".")[0]) - 1
-        notif = notifs.pop(idx)
-        schedule.clear(f"user_{message.chat.id}")
-        for n in notifs:
-            schedule.every().day.at(n["time"]).do(lambda: bot.send_message(message.chat.id, n["text"])).tag(f"user_{message.chat.id}")
-        bot.send_message(message.chat.id, f"🗑 Уведомление удалено.", reply_markup=get_main_menu())
-    except:
-        bot.send_message(message.chat.id, "Не получилось определить уведомление. Попробуй снова.")
+@bot.message_handler(func=lambda m: any(m.text.startswith(f"{i+1}.") for i in range(20)))
+def delete_reminder(message):
+    chat_id = message.chat.id
+    idx = int(message.text.split(".")[0]) - 1
+    if 0 <= idx < len(user_reminders[chat_id]):
+        deleted = user_reminders[chat_id].pop(idx)
+        bot.send_message(chat_id, f"Удалено: {deleted['text']} ({deleted['time']})")
+        show_notifications(message)
 
-    user_states.pop(message.chat.id, None)
-
+# ==== Webhook ====
 @app.route('/', methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
-        update = telebot.types.Update.de_json(request.get_data().decode('utf-8'))
+        update = telebot.types.Update.de_json(request.data.decode('utf-8'))
         bot.process_new_updates([update])
         return '', 200
     return '', 403
 
 @app.route('/set_webhook', methods=['GET'])
 def set_webhook():
-    success = bot.set_webhook(url=WEBHOOK_URL)
-    return f"Webhook установлен: {success}"
+    bot.remove_webhook()
+    result = bot.set_webhook(url=WEBHOOK_URL)
+    return f"Webhook установлен: {result}"
 
 @app.route('/')
 def home():
-    return "Бот работает по Webhook!"
+    return "Бот работает!"
 
+# ==== Запуск ====
 if __name__ == '__main__':
-    threading.Thread(target=run_schedule).start()
+    threading.Thread(target=schedule_tasks).start()
     app.run(host='0.0.0.0', port=8080)
