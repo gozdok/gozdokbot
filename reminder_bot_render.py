@@ -69,24 +69,6 @@ def run_schedule():
 # ==== Состояния пользователей ====
 user_states = {}
 
-# ==== Лог всех сообщений ====
-@bot.message_handler(func=lambda msg: True)
-def log_all(msg):
-    print(f"[DEBUG] Получено сообщение: {msg.text!r}")
-    # Передаём в цепочку следующие хендлеры вручную
-    if msg.text == "Тест":
-        return test(msg)
-    elif msg.text == "Добавить":
-        return add_start(msg)
-    elif msg.text == "Уведомления":
-        return list_notifications(msg)
-    elif msg.text in ["Точное время", "Случайное время"]:
-        return choose_time_type(msg)
-    elif user_states.get(msg.chat.id, {}).get("state") == "enter_time":
-        return enter_time(msg)
-    elif user_states.get(msg.chat.id, {}).get("state") == "enter_text":
-        return enter_text(msg)
-
 # ==== Команды ====
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -94,15 +76,18 @@ def start(message):
     markup.add("Тест", "Добавить", "Уведомления")
     bot.send_message(message.chat.id, "Привет! Я бот-наставник. Я буду присылать тебе напоминания каждый день 🧭", reply_markup=markup)
 
+@bot.message_handler(func=lambda msg: msg.text == "Тест")
 def test(msg):
     bot.send_message(msg.chat.id, "✅ Бот работает! Это тестовое сообщение.")
 
+@bot.message_handler(func=lambda msg: msg.text == "Добавить")
 def add_start(msg):
     user_states[msg.chat.id] = {"state": "choose_type"}
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("Точное время", "Случайное время")
     bot.send_message(msg.chat.id, "Выбери тип времени:", reply_markup=markup)
 
+@bot.message_handler(func=lambda msg: msg.text in ["Точное время", "Случайное время"])
 def choose_time_type(msg):
     state = user_states.get(msg.chat.id)
     if not state or state.get("state") != "choose_type":
@@ -111,11 +96,13 @@ def choose_time_type(msg):
     state["state"] = "enter_time"
     bot.send_message(msg.chat.id, "Введи время (например, 14:30 или интервал 12:00-16:00):", reply_markup=types.ReplyKeyboardRemove())
 
+@bot.message_handler(func=lambda msg: user_states.get(msg.chat.id, {}).get("state") == "enter_time")
 def enter_time(msg):
     user_states[msg.chat.id]["time"] = msg.text
     user_states[msg.chat.id]["state"] = "enter_text"
     bot.send_message(msg.chat.id, "Теперь введи текст уведомления:")
 
+@bot.message_handler(func=lambda msg: user_states.get(msg.chat.id, {}).get("state") == "enter_text")
 def enter_text(msg):
     data = user_states.pop(msg.chat.id)
     user_id = str(msg.chat.id)
@@ -131,6 +118,7 @@ def enter_text(msg):
     markup.add("Тест", "Добавить", "Уведомления")
     bot.send_message(msg.chat.id, "✅ Уведомление добавлено!", reply_markup=markup)
 
+@bot.message_handler(func=lambda msg: msg.text == "Уведомления")
 def list_notifications(msg):
     notes = user_notifications.get(str(msg.chat.id), [])
     if not notes:
@@ -156,7 +144,9 @@ def delete_note(call):
 @app.route('/', methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
-        update = telebot.types.Update.de_json(request.data.decode('utf-8'))
+        data = request.data.decode('utf-8')
+        print(f"Получено обновление: {data}")  # <-- логирование
+        update = telebot.types.Update.de_json(data)
         bot.process_new_updates([update])
         return '', 200
     return '', 403
