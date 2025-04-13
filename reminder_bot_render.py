@@ -76,18 +76,19 @@ def start(message):
     markup.add("Тест", "Добавить", "Уведомления")
     bot.send_message(message.chat.id, "Привет! Я бот-наставник. Я буду присылать тебе напоминания каждый день 🧭", reply_markup=markup)
 
-@bot.message_handler(func=lambda msg: msg.text == "Тест")
+@bot.message_handler(func=lambda msg: msg.text.strip().lower() == "тест")
 def test(msg):
     bot.send_message(msg.chat.id, "✅ Бот работает! Это тестовое сообщение.")
 
-@bot.message_handler(func=lambda msg: msg.text == "Добавить")
+@bot.message_handler(func=lambda msg: msg.text.strip().lower() == "добавить")
 def add_start(msg):
+    print("Нажата кнопка 'Добавить'")  # Отладочный вывод в логи
     user_states[msg.chat.id] = {"state": "choose_type"}
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("Точное время", "Случайное время")
     bot.send_message(msg.chat.id, "Выбери тип времени:", reply_markup=markup)
 
-@bot.message_handler(func=lambda msg: msg.text in ["Точное время", "Случайное время"])
+@bot.message_handler(func=lambda msg: msg.text.strip() in ["Точное время", "Случайное время"])
 def choose_time_type(msg):
     state = user_states.get(msg.chat.id)
     if not state or state.get("state") != "choose_type":
@@ -118,7 +119,7 @@ def enter_text(msg):
     markup.add("Тест", "Добавить", "Уведомления")
     bot.send_message(msg.chat.id, "✅ Уведомление добавлено!", reply_markup=markup)
 
-@bot.message_handler(func=lambda msg: msg.text == "Уведомления")
+@bot.message_handler(func=lambda msg: msg.text.strip().lower() == "уведомления")
 def list_notifications(msg):
     notes = user_notifications.get(str(msg.chat.id), [])
     if not notes:
