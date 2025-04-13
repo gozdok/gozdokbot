@@ -9,7 +9,7 @@ from datetime import datetime
 # ==== Настройки ====
 TOKEN = "7762206409:AAFePy9OGuJWG-HxB48JRoKc1f6VFa4IRYc"
 CHAT_ID = 312503925
-WEBHOOK_URL = "https://ТВОЙ-ПРОЕКТ-на-render.com/"  # замени позже на свою ссылку с Render
+WEBHOOK_URL = "https://gozdokbot.onrender.com/"  # замени позже на свою ссылку с Render
 TIMEZONE_OFFSET = 3
 
 bot = telebot.TeleBot(TOKEN)
