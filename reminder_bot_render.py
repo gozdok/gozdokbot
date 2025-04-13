@@ -93,7 +93,7 @@ def set_webhook():
     result = bot.set_webhook(url=WEBHOOK_URL)
     return f"Webhook установлен: {result}"
 
-@app.route('/')
+@app.route('/home')
 def home():
     return "Бот работает по Webhook!"
 
