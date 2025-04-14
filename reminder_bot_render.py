@@ -140,12 +140,12 @@ def delete_note(call):
         bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id,
                               text=f"🗑 Уведомление удалено: {deleted['text']}")
 
-# ==== Webhook ====
+# ==== Webhook с логом ====
 @app.route('/', methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
         data = request.data.decode('utf-8')
-        print(f"Получено обновление: {data}")  # <-- логирование
+        print(f"Получено обновление: {data}")
         update = telebot.types.Update.de_json(data)
         bot.process_new_updates([update])
         return '', 200
