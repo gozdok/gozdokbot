@@ -81,25 +81,23 @@ def test(msg):
     bot.send_message(msg.chat.id, "✅ Бот работает! Это тестовое сообщение.")
 
 @bot.message_handler(func=lambda msg: msg.text == "Добавить")
-def add_start(msg):
-    user_states[msg.chat.id] = {"state": "choose_type"}
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add("Точное время", "Случайное время")
-    bot.send_message(msg.chat.id, "Выбери тип времени:", reply_markup=markup)
-
-@bot.message_handler(func=lambda msg: msg.text in ["Точное время", "Случайное время"])
-def choose_time_type(msg):
-    state = user_states.get(msg.chat.id)
-    if not state or state.get("state") != "choose_type":
-        return
-    state["time_type"] = msg.text
-    state["state"] = "enter_time"
-    bot.send_message(msg.chat.id, "Введи время (например, 14:30 или интервал 12:00-16:00):", reply_markup=types.ReplyKeyboardRemove())
+def add_notification(msg):
+    user_states[msg.chat.id] = {"state": "enter_time"}
+    bot.send_message(msg.chat.id, "Введи время (например, 14:30 или 12:00-16:00):", reply_markup=types.ReplyKeyboardRemove())
 
 @bot.message_handler(func=lambda msg: user_states.get(msg.chat.id, {}).get("state") == "enter_time")
 def enter_time(msg):
-    user_states[msg.chat.id]["time"] = msg.text
-    user_states[msg.chat.id]["state"] = "enter_text"
+    time_input = msg.text.strip()
+    if "-" in time_input:
+        time_type = "Случайное время"
+    else:
+        time_type = "Точное время"
+
+    user_states[msg.chat.id] = {
+        "state": "enter_text",
+        "time": time_input,
+        "time_type": time_type
+    }
     bot.send_message(msg.chat.id, "Теперь введи текст уведомления:")
 
 @bot.message_handler(func=lambda msg: user_states.get(msg.chat.id, {}).get("state") == "enter_text")
@@ -126,7 +124,11 @@ def list_notifications(msg):
 
     markup = types.InlineKeyboardMarkup()
     for i, note in enumerate(notes):
-        btn = types.InlineKeyboardButton(text=f"{note['text']} ({note['time']})", callback_data=f"del_{i}")
+        if note["time_type"] == "Точное время":
+            time_label = f"🕒 {note['time']}"
+        else:
+            time_label = f"🎲 {note['time']}"
+        btn = types.InlineKeyboardButton(text=f"{note['text']} ({time_label})", callback_data=f"del_{i}")
         markup.add(btn)
     bot.send_message(msg.chat.id, "📋 Список уведомлений:", reply_markup=markup)
 
@@ -144,9 +146,8 @@ def delete_note(call):
 @app.route('/', methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
-        data = request.get_data(as_text=True)
-        print(f"Получено обновление: {data}", flush=True)
-        update = telebot.types.Update.de_json(data)
+        update = telebot.types.Update.de_json(request.data.decode('utf-8'))
+        print(f"[LOG] Получено обновление: {update}")
         bot.process_new_updates([update])
         return '', 200
     return '', 403
